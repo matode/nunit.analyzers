@@ -554,13 +554,6 @@ namespace NUnit.Analyzers.DisposeFieldsInTearDown
             {
                 return memberAccessExpression.Name.Identifier.Text;
             }
-            else if (expression is ParenthesizedExpressionSyntax { Expression: CastExpressionSyntax { Expression: IdentifierNameSyntax castIdentifierNameSyntax, Type: IdentifierNameSyntax
-                     {
-                         Identifier.Text: "IDisposable"
-                     } } })
-            {
-                return castIdentifierNameSyntax.Identifier.Text;
-            }
 
             // considering cast to IDisposable, e.g. in case of explicit interface implementation of IDisposable.Dispose()
             else if (expression is ParenthesizedExpressionSyntax parenthesizedExpression &&
