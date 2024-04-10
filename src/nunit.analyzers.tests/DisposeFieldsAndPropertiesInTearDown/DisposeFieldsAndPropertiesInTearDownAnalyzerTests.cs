@@ -124,7 +124,7 @@ namespace NUnit.Analyzers.Tests.DisposeFieldsInTearDown
         }
 
         [Test]
-        public void AnalyzeWhenExplicitlyInterfaceImplementedDisposableFieldSetInConstructorIsDisposedInOneTimeTearDownMethod()
+        public void AnalyzeWhenExplicitlyCastedToIDisposableIsDisposedInOneTimeTearDownMethod()
         {
             var testCode = TestUtility.WrapMethodInClassNamespaceAndAddUsings($@"
         private IAnotherInterface field;
@@ -141,6 +141,53 @@ namespace NUnit.Analyzers.Tests.DisposeFieldsInTearDown
         }}
 
         {DummyExplicitDisposable}
+        ");
+
+            RoslynAssert.Valid(analyzer, testCode);
+        }
+
+        [Test]
+        public void AnalyzeWhenCastedToIDisposableIsDisposedInOneTimeTearDownMethod()
+        {
+            var testCode = TestUtility.WrapMethodInClassNamespaceAndAddUsings($@"
+        private DummyDisposable field;
+
+        public TestClass()
+        {{
+            field = new DummyDisposable();
+        }}
+
+        [OneTimeTearDown]
+        public void TearDownMethod()
+        {{
+            (field as IDisposable).Dispose();
+        }}
+
+        {DummyDisposable}
+        ");
+
+            RoslynAssert.Valid(analyzer, testCode);
+        }
+
+        [Test]
+        public void AnalyzeWhenCastedOverLocalVariableIsDisposedInOneTimeTearDownMethod()
+        {
+            var testCode = TestUtility.WrapMethodInClassNamespaceAndAddUsings($@"
+        private DummyDisposable field;
+
+        public TestClass()
+        {{
+            field = new DummyDisposable();
+        }}
+
+        [OneTimeTearDown]
+        public void TearDownMethod()
+        {{
+            IDisposable newField = field;
+            newField.Dispose();
+        }}
+
+        {DummyDisposable}
         ");
 
             RoslynAssert.Valid(analyzer, testCode);

@@ -547,6 +547,32 @@ namespace NUnit.Analyzers.DisposeFieldsInTearDown
 
             if (expression is IdentifierNameSyntax identifierName)
             {
+                // handling local variable assignment, which is then disposed and not the original type
+                BlockSyntax? blockSyntaxParent = FindBlockParent(expression);
+                if (blockSyntaxParent is not null)
+                {
+                    var childNodes = blockSyntaxParent.ChildNodes().Where(o => o is LocalDeclarationStatementSyntax);
+                    if (childNodes.Any())
+                    {
+                        foreach (LocalDeclarationStatementSyntax child in childNodes)
+                        {
+                            if (child.Declaration is VariableDeclarationSyntax variableDeclaration &&
+                                variableDeclaration.Type is IdentifierNameSyntax variableDeclarationIdentifierName &&
+                                variableDeclarationIdentifierName.Identifier.Text.Equals("IDisposable", StringComparison.Ordinal) &&
+                                variableDeclaration.Variables.Any())
+                            {
+                                var variableDeclarator = variableDeclaration.Variables.First();
+
+                                if (variableDeclarator.Identifier.Text.Equals(identifierName.Identifier.Text, StringComparison.Ordinal) &&
+                                    variableDeclarator.Initializer?.Value is IdentifierNameSyntax valueIdentifier)
+                                {
+                                    return valueIdentifier.Identifier.Text;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 return identifierName.Identifier.Text;
             }
             else if (expression is MemberAccessExpressionSyntax memberAccessExpression &&
@@ -554,18 +580,74 @@ namespace NUnit.Analyzers.DisposeFieldsInTearDown
             {
                 return memberAccessExpression.Name.Identifier.Text;
             }
-
-            // considering cast to IDisposable, e.g. in case of explicit interface implementation of IDisposable.Dispose()
-            else if (expression is ParenthesizedExpressionSyntax parenthesizedExpression &&
-                     parenthesizedExpression.Expression is CastExpressionSyntax castExpression &&
-                     castExpression.Expression is IdentifierNameSyntax castIdentifierName &&
-                     castExpression.Type is IdentifierNameSyntax typeIdentifierName &&
-                     typeIdentifierName.Identifier.Text.Equals("IDisposable", StringComparison.Ordinal))
+            else if (expression is ParenthesizedExpressionSyntax parenthesizedExpression)
             {
-                return castIdentifierName.Identifier.Text;
+                // considering ((IDisposable)someType).Dispose(), e.g. in case of explicit interface implementation of IDisposable.Dispose()
+                if (IsExplicitCastToIDisposable(parenthesizedExpression, out IdentifierNameSyntax? explicitlyCastedMemberIdentifierName) && explicitlyCastedMemberIdentifierName is not null)
+                {
+                    return explicitlyCastedMemberIdentifierName.Identifier.Text;
+                }
+
+                // considering (someType as IDisposable).Dispose()
+                if (IsAsCastToIDisposable(parenthesizedExpression, out IdentifierNameSyntax? asCastedMemberIdentifierName) && asCastedMemberIdentifierName is not null)
+                {
+                    return asCastedMemberIdentifierName.Identifier.Text;
+                }
             }
 
             return null;
+        }
+
+        private static bool IsExplicitCastToIDisposable(ParenthesizedExpressionSyntax parenthesizedExpression, out IdentifierNameSyntax? castedMemberIdentifierName)
+        {
+            castedMemberIdentifierName = null;
+            var isExplicitCast = false;
+
+            if (parenthesizedExpression.Expression is CastExpressionSyntax castExpression &&
+                castExpression.Type is IdentifierNameSyntax castingTypeIdentifierName && castingTypeIdentifierName.Identifier.Text.Equals("IDisposable", StringComparison.Ordinal) &&
+                castExpression.Expression is IdentifierNameSyntax)
+            {
+                castedMemberIdentifierName = castExpression.Expression as IdentifierNameSyntax;
+                isExplicitCast = true;
+            }
+
+            return isExplicitCast;
+        }
+
+        private static bool IsAsCastToIDisposable(ParenthesizedExpressionSyntax parenthesizedExpression, out IdentifierNameSyntax? castedMemberIdenfierName)
+        {
+            castedMemberIdenfierName = null;
+            var isAsCastToIDisposable = false;
+
+            if (parenthesizedExpression.Expression is BinaryExpressionSyntax binaryExpression &&
+                binaryExpression.Right is IdentifierNameSyntax castingTypeIdentifier &&
+                castingTypeIdentifier.Identifier.Text.Equals("IDisposable", StringComparison.Ordinal) &&
+                binaryExpression.Left is IdentifierNameSyntax)
+            {
+                castedMemberIdenfierName = binaryExpression.Left as IdentifierNameSyntax;
+                isAsCastToIDisposable = true;
+            }
+
+            return isAsCastToIDisposable;
+        }
+
+        private static BlockSyntax? FindBlockParent(SyntaxNode parent)
+        {
+            while (true)
+            {
+                switch (parent)
+                {
+                    case null:
+                        return null;
+                    case BlockSyntax blockSyntax:
+                        return blockSyntax;
+                    default:
+#pragma warning disable CS8600
+                        parent = parent.Parent;
+#pragma warning disable CS8600
+                        break;
+                }
+            }
         }
 
         private sealed class Parameters
